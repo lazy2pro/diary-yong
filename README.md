@@ -24,7 +24,7 @@
 |------|------|
 | `OPENAI_API_KEY` | GPT 사용 시 |
 | `GEMINI_API_KEY` | Gemini 사용 시 |
-| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Vercel KV (일기 저장) |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis(Upstash) 저장소 — Vercel KV/Upstash 통합이 자동 주입. (또는 `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`) |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (사진 저장) |
 | `KAKAO_REST_API_KEY` | (선택) 사진 GPS → 지명 변환 |
 
