@@ -25,8 +25,9 @@ function toOpenAiMessages(chat: ChatMessage[]) {
 // Gemini REST 호출 (SDK 없이 fetch로)
 async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boolean): Promise<string> {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY가 설정되어 있지 않아요.");
-  const model = "gemini-2.0-flash";
+  if (!key) throw new Error("GEMINI_API_KEY가 설정되어 있지 않아요. Vercel 환경변수에 키를 추가한 뒤 재배포해 주세요.");
+  // 모델 버전은 자주 바뀌므로 환경변수(GEMINI_MODEL)로 덮어쓸 수 있게 한다. 기본은 최신 GA 모델.
+  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
   const contents = chat.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
@@ -45,6 +46,11 @@ async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boo
   );
   if (!res.ok) {
     const detail = await res.text();
+    if (res.status === 400 && /API key not valid/i.test(detail))
+      throw new Error("Gemini 키가 올바르지 않아요. GEMINI_API_KEY 값을 확인해 주세요.");
+    if (res.status === 404)
+      throw new Error(`Gemini 모델(${model})을 찾을 수 없어요. GEMINI_MODEL 환경변수로 사용 가능한 모델명을 지정해 주세요.`);
+    if (res.status === 429) throw new Error("Gemini 사용 한도를 초과했어요. 잠시 후 다시 시도해 주세요.");
     throw new Error(`Gemini 오류 (${res.status}): ${detail.slice(0, 200)}`);
   }
   const data = await res.json();
