@@ -63,6 +63,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const place = lat != null && lng != null ? await reverseGeocode(lat, lng) : null;
 
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return NextResponse.json(
+        { error: "사진 저장소(Vercel Blob)가 연결되어 있지 않아요. Vercel 프로젝트의 Storage 탭에서 Blob을 만들어 연결한 뒤 재배포해 주세요." },
+        { status: 503 }
+      );
+    }
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
     const blob = await put(`diary/${id}/${Date.now()}.${ext}`, bytes, {
       access: "public",

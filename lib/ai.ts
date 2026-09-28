@@ -33,10 +33,18 @@ async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boo
     parts: [{ text: m.content }],
   }));
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  // 속도 최적화: Gemini 3.x는 기본으로 긴 "사고(thinking)"를 하는데, 캐주얼한 일기 대화엔
+  // 불필요해 응답이 느려진다. thinkingBudget=0으로 사고를 끄고, 답변 길이도 제한한다.
+  // (일기 완성처럼 정리가 필요한 jsonMode에서는 사고를 살짝 허용한다.)
+  const generationConfig: Record<string, unknown> = {
+    maxOutputTokens: jsonMode ? 1200 : 320,
+    thinkingConfig: { thinkingBudget: jsonMode ? 512 : 0 },
+  };
+  if (jsonMode) generationConfig.responseMimeType = "application/json";
   const payload = JSON.stringify({
     systemInstruction: { parts: [{ text: system }] },
     contents,
-    generationConfig: jsonMode ? { responseMimeType: "application/json" } : {},
+    generationConfig,
   });
 
   // 일시적 과부하(503/500/429)는 잠깐 기다렸다 자동 재시도한다.
