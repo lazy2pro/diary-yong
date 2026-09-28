@@ -53,19 +53,32 @@ async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boo
   return text;
 }
 
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
 async function openaiGenerate(system: string, chat: ChatMessage[], jsonMode: boolean): Promise<string> {
   const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("OPENAI_API_KEY가 설정되어 있지 않아요.");
+  if (!key) throw new Error("OPENAI_API_KEY가 설정되어 있지 않아요. Vercel 환경변수에 키를 추가한 뒤 재배포해 주세요.");
   const client = new OpenAI({ apiKey: key });
-  const completion = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "system", content: system }, ...toOpenAiMessages(chat)],
-    ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
-    temperature: 0.8,
-  });
-  const text = completion.choices[0]?.message?.content ?? "";
-  if (!text) throw new Error("OpenAI가 빈 응답을 반환했어요.");
-  return text;
+  try {
+    const completion = await client.chat.completions.create({
+      model: OPENAI_MODEL,
+      messages: [{ role: "system", content: system }, ...toOpenAiMessages(chat)],
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+      temperature: 0.8,
+    });
+    const text = completion.choices[0]?.message?.content ?? "";
+    if (!text) throw new Error("OpenAI가 빈 응답을 반환했어요.");
+    return text;
+  } catch (e: unknown) {
+    // OpenAI SDK 오류를 사용자가 이해할 수 있는 한국어 메시지로 변환
+    const err = e as { status?: number; code?: string; message?: string };
+    const status = err?.status;
+    if (status === 401) throw new Error("OpenAI 키가 올바르지 않아요. OPENAI_API_KEY 값을 확인해 주세요.");
+    if (status === 429 || err?.code === "insufficient_quota")
+      throw new Error("OpenAI 사용 한도/크레딧이 부족해요. platform.openai.com의 Billing에서 결제·크레딧을 확인해 주세요. (ChatGPT Plus 구독과 API 사용료는 별개예요)");
+    if (status === 404) throw new Error(`OpenAI 모델(${OPENAI_MODEL})에 접근할 수 없어요. 계정에서 사용 가능한 모델인지 확인해 주세요.`);
+    throw new Error(`OpenAI 오류: ${err?.message ?? String(e)}`);
+  }
 }
 
 // 대화 중 AI의 다음 답장 (일기 친구로서 되묻기/공감)

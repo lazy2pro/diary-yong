@@ -12,6 +12,117 @@ const fmtDate = (ms: number) =>
 const fmtDateTime = (ms: number) =>
   new Date(ms).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
+// Web Speech API 최소 타입 (표준 TS 타입이 없어 필요한 부분만 정의)
+interface SpeechRecognitionResultLike {
+  isFinal: boolean;
+  0: { transcript: string };
+}
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+}
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+// 브라우저 내장 음성인식(Web Speech API)으로 말 → 텍스트. (별도 API 비용 없음)
+function useVoiceInput() {
+  const [listening, setListening] = useState(false);
+  const [finalText, setFinalText] = useState("");
+  const [interimText, setInterimText] = useState("");
+  const [supported, setSupported] = useState(false);
+  const recRef = useRef<SpeechRecognitionLike | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const w = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) return;
+    setSupported(true);
+    const rec = new SR();
+    rec.lang = "ko-KR";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (e: SpeechRecognitionEventLike) => {
+      let interim = "";
+      let final = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) final += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      if (final) setFinalText(final.trim());
+      setInterimText(interim);
+    };
+    rec.onend = () => {
+      setListening(false);
+      setInterimText("");
+    };
+    rec.onerror = () => {
+      setListening(false);
+      setInterimText("");
+    };
+    recRef.current = rec;
+    return () => {
+      try {
+        rec.stop();
+      } catch {
+        /* noop */
+      }
+    };
+  }, []);
+
+  const start = () => {
+    if (!recRef.current || listening) return;
+    setFinalText("");
+    setInterimText("");
+    try {
+      recRef.current.start();
+      setListening(true);
+    } catch {
+      /* 이미 실행 중 등 */
+    }
+  };
+  const stop = () => {
+    try {
+      recRef.current?.stop();
+    } catch {
+      /* noop */
+    }
+    setListening(false);
+  };
+
+  return { listening, finalText, interimText, supported, start, stop };
+}
+
+// 브라우저 내장 음성합성(Web Speech API)으로 텍스트 → 음성.
+function speakText(text: string) {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "ko-KR";
+    u.rate = 1;
+    u.pitch = 1.05;
+    const koVoice = window.speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith("ko"));
+    if (koVoice) u.voice = koVoice;
+    window.speechSynthesis.speak(u);
+  } catch {
+    /* noop */
+  }
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("cover");
   const [provider, setProvider] = useState<AiProvider>("openai");
@@ -72,6 +183,7 @@ export default function Home() {
           <WriteView
             key="write"
             provider={provider}
+            setProvider={setProvider}
             onCancel={openShelf}
             onSaved={(e) => {
               setActive(e);
@@ -232,7 +344,17 @@ function Shelf({
 }
 
 /* ---------- 쓰기: AI와 대화 → 일기로 정리 ---------- */
-function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCancel: () => void; onSaved: (e: DiaryEntry) => void }) {
+function WriteView({
+  provider,
+  setProvider,
+  onCancel,
+  onSaved,
+}: {
+  provider: AiProvider;
+  setProvider: (p: AiProvider) => void;
+  onCancel: () => void;
+  onSaved: (e: DiaryEntry) => void;
+}) {
   const [chat, setChat] = useState<ChatMessage[]>([
     { role: "assistant", content: "안녕! 오늘 하루는 어땠어? 편하게 이야기해 줘. 내가 예쁜 일기로 정리해 줄게." },
   ]);
@@ -240,11 +362,19 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
   const [busy, setBusy] = useState(false);
   const [composing, setComposing] = useState(false);
   const [err, setErr] = useState("");
+  const [voiceMode, setVoiceMode] = useState(false); // AI 답장을 음성으로 읽어줄지
   const scrollRef = useRef<HTMLDivElement>(null);
+  const voice = useVoiceInput();
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [chat, busy]);
+
+  // 음성 인식 결과가 확정되면 입력창에 채운다
+  useEffect(() => {
+    if (voice.finalText) setInput((prev) => (prev ? prev + " " : "") + voice.finalText);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.finalText]);
 
   async function send() {
     const text = input.trim();
@@ -262,7 +392,10 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
       });
       const data = await res.json();
       if (data.error) setErr(data.error);
-      else setChat((c) => [...c, { role: "assistant", content: data.reply }]);
+      else {
+        setChat((c) => [...c, { role: "assistant", content: data.reply }]);
+        if (voiceMode) speakText(data.reply);
+      }
     } catch (e: unknown) {
       setErr(errMsg(e));
     } finally {
@@ -303,10 +436,29 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
       style={{ width: "min(560px, 94vw)" }}
     >
       <div style={{ ...pageStyle(), display: "flex", flexDirection: "column", height: "min(78vh, 720px)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 8 }}>
           <button onClick={onCancel} style={ghostBtn()}>← 목록</button>
-          <span className="handwriting" style={{ fontSize: 24, color: "var(--cover-dark)" }}>오늘의 대화</span>
-          <span style={{ fontSize: 11, color: "var(--ink-soft)" }}>{provider === "openai" ? "GPT" : "Gemini"}</span>
+          <span className="handwriting" style={{ fontSize: 22, color: "var(--cover-dark)" }}>오늘의 대화</span>
+          {/* GPT ↔ Gemini 전환 */}
+          <div style={{ display: "flex", gap: 3, background: "var(--paper-line)", borderRadius: 999, padding: 3 }}>
+            {(["openai", "gemini"] as AiProvider[]).map((p) => (
+              <button
+                key={p}
+                onClick={() => setProvider(p)}
+                style={{
+                  border: "none",
+                  borderRadius: 999,
+                  padding: "4px 10px",
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  background: provider === p ? "var(--accent)" : "transparent",
+                  color: provider === p ? "#fff" : "var(--ink-soft)",
+                }}
+              >
+                {p === "openai" ? "GPT" : "Gemini"}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div ref={scrollRef} className="no-scrollbar" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: "6px 2px" }}>
@@ -333,7 +485,33 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
 
         {err && <div style={{ color: "#c0392b", fontSize: 12.5, padding: "6px 2px" }}>{err}</div>}
 
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        {/* 음성 안내 (인식 지원 여부) */}
+        {voice.listening && (
+          <div style={{ color: "var(--accent)", fontSize: 12.5, padding: "4px 2px", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#e0533d", animation: "none" }} /> 듣는 중… {voice.interimText}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "flex-end" }}>
+          {voice.supported && (
+            <button
+              onClick={() => (voice.listening ? voice.stop() : voice.start())}
+              title={voice.listening ? "녹음 중지" : "음성으로 말하기"}
+              aria-label="음성 입력"
+              style={{
+                border: "none",
+                width: 46,
+                height: 46,
+                borderRadius: 14,
+                flexShrink: 0,
+                background: voice.listening ? "#e0533d" : "var(--accent-soft)",
+                color: voice.listening ? "#fff" : "var(--cover-dark)",
+                fontSize: 20,
+              }}
+            >
+              {voice.listening ? "■" : "🎙️"}
+            </button>
+          )}
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -343,7 +521,7 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
                 send();
               }
             }}
-            placeholder="오늘 있었던 일을 이야기해 주세요…"
+            placeholder={voice.supported ? "말하거나 입력해 주세요…" : "오늘 있었던 일을 이야기해 주세요…"}
             rows={1}
             style={{
               flex: 1,
@@ -358,10 +536,16 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
               maxHeight: 100,
             }}
           />
-          <button onClick={send} disabled={busy || !input.trim()} style={{ ...primaryBtn(), padding: "0 16px", opacity: busy || !input.trim() ? 0.5 : 1 }}>
+          <button onClick={send} disabled={busy || !input.trim()} style={{ ...primaryBtn(), padding: "0 16px", height: 46, opacity: busy || !input.trim() ? 0.5 : 1 }}>
             보내기
           </button>
         </div>
+
+        {/* AI 답장 음성 읽기 토글 */}
+        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--ink-soft)", marginTop: 8, cursor: "pointer" }}>
+          <input type="checkbox" checked={voiceMode} onChange={(e) => setVoiceMode(e.target.checked)} />
+          🔊 답장을 목소리로 읽어주기
+        </label>
 
         <button onClick={finish} disabled={composing} style={{ ...secondaryBtn(), width: "100%", marginTop: 10, opacity: composing ? 0.6 : 1 }}>
           {composing ? "일기로 정리하는 중…" : "📖 이 대화로 일기 완성하기"}
