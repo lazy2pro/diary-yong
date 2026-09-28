@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { AiProvider, ChatMessage, DiaryEntry, DiaryEntrySummary } from "@/lib/types";
+import { errMsg } from "@/lib/util";
 
 type View = "cover" | "shelf" | "write" | "read";
 
@@ -262,8 +263,8 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
       const data = await res.json();
       if (data.error) setErr(data.error);
       else setChat((c) => [...c, { role: "assistant", content: data.reply }]);
-    } catch (e: any) {
-      setErr(String(e?.message ?? e));
+    } catch (e: unknown) {
+      setErr(errMsg(e));
     } finally {
       setBusy(false);
     }
@@ -286,8 +287,8 @@ function WriteView({ provider, onCancel, onSaved }: { provider: AiProvider; onCa
       const data = await res.json();
       if (data.error) setErr(data.error);
       else onSaved(data.entry);
-    } catch (e: any) {
-      setErr(String(e?.message ?? e));
+    } catch (e: unknown) {
+      setErr(errMsg(e));
     } finally {
       setComposing(false);
     }
@@ -386,8 +387,8 @@ function ReadView({ entry, onBack, onChange }: { entry: DiaryEntry; onBack: () =
       const data = await res.json();
       if (data.error) setErr(data.error);
       else onChange(data.entry);
-    } catch (e: any) {
-      setErr(String(e?.message ?? e));
+    } catch (e: unknown) {
+      setErr(errMsg(e));
     } finally {
       setUploading(false);
     }

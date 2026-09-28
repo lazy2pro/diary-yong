@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { errMsg } from "@/lib/util";
 import { put } from "@vercel/blob";
 import exifr from "exifr";
 import { getEntry, saveEntry } from "@/lib/store";
@@ -80,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await saveEntry(entry);
 
     return NextResponse.json({ photo, entry });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message ?? String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errMsg(error) }, { status: 500 });
   }
 }

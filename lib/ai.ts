@@ -48,7 +48,7 @@ async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boo
     throw new Error(`Gemini 오류 (${res.status}): ${detail.slice(0, 200)}`);
   }
   const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join("") ?? "";
+  const text = data?.candidates?.[0]?.content?.parts?.map((pt: { text?: string }) => pt.text ?? "").join("") ?? "";
   if (!text) throw new Error("Gemini가 빈 응답을 반환했어요.");
   return text;
 }

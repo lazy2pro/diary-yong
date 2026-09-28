@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { errMsg } from "@/lib/util";
 import { getEntry, saveEntry, deleteEntry } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +11,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const entry = await getEntry(id);
     if (!entry) return NextResponse.json({ error: "일기를 찾을 수 없어요." }, { status: 404 });
     return NextResponse.json({ entry });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message ?? String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errMsg(error) }, { status: 500 });
   }
 }
 
@@ -27,8 +28,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (typeof b?.mood === "string" || b?.mood === null) entry.mood = b.mood ? String(b.mood).slice(0, 4) : null;
     await saveEntry(entry);
     return NextResponse.json({ entry });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message ?? String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errMsg(error) }, { status: 500 });
   }
 }
 
@@ -38,7 +39,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     const { id } = await params;
     await deleteEntry(id);
     return NextResponse.json({ ok: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message ?? String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errMsg(error) }, { status: 500 });
   }
 }

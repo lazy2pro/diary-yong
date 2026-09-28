@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { errMsg } from "@/lib/util";
 import { listEntries, saveEntry, newEntry } from "@/lib/store";
 import { composeDiary } from "@/lib/ai";
 import type { AiProvider, ChatMessage, DiaryEntry } from "@/lib/types";
@@ -9,8 +10,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     return NextResponse.json({ entries: await listEntries() });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message ?? String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errMsg(error) }, { status: 500 });
   }
 }
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
 
     await saveEntry(entry);
     return NextResponse.json({ entry });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message ?? String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errMsg(error) }, { status: 500 });
   }
 }

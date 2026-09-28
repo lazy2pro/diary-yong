@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { errMsg } from "@/lib/util";
 import { chatReply } from "@/lib/ai";
 import type { AiProvider, ChatMessage } from "@/lib/types";
 
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
     }
     const reply = await chatReply(provider, messages);
     return NextResponse.json({ reply });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message ?? String(error) }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errMsg(error) }, { status: 500 });
   }
 }
