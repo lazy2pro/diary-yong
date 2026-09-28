@@ -32,26 +32,44 @@ async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boo
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+  const payload = JSON.stringify({
+    systemInstruction: { parts: [{ text: system }] },
+    contents,
+    generationConfig: jsonMode ? { responseMimeType: "application/json" } : {},
+  });
+
+  // 일시적 과부하(503/500/429)는 잠깐 기다렸다 자동 재시도한다.
+  const RETRY_STATUS = new Set([429, 500, 503]);
+  const maxAttempts = 3;
+  let res: Response | null = null;
+  let lastDetail = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    res = await fetch(url, {
       method: "POST",
       headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents,
-        generationConfig: jsonMode ? { responseMimeType: "application/json" } : {},
-      }),
+      body: payload,
+    });
+    if (res.ok) break;
+    lastDetail = await res.text();
+    if (RETRY_STATUS.has(res.status) && attempt < maxAttempts) {
+      // 지수 백오프: 0.8s, 1.6s
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+      continue;
     }
-  );
-  if (!res.ok) {
-    const detail = await res.text();
-    if (res.status === 400 && /API key not valid/i.test(detail))
+    break;
+  }
+
+  if (!res || !res.ok) {
+    const status = res?.status ?? 0;
+    if (status === 400 && /API key not valid/i.test(lastDetail))
       throw new Error("Gemini 키가 올바르지 않아요. GEMINI_API_KEY 값을 확인해 주세요.");
-    if (res.status === 404)
+    if (status === 404)
       throw new Error(`Gemini 모델(${model})을 찾을 수 없어요. GEMINI_MODEL 환경변수로 사용 가능한 모델명을 지정해 주세요.`);
-    if (res.status === 429) throw new Error("Gemini 사용 한도를 초과했어요. 잠시 후 다시 시도해 주세요.");
-    throw new Error(`Gemini 오류 (${res.status}): ${detail.slice(0, 200)}`);
+    if (status === 429) throw new Error("Gemini 사용 한도를 초과했어요. 잠시 후 다시 시도해 주세요.");
+    if (status === 503 || status === 500)
+      throw new Error("지금 Gemini가 혼잡해요. 잠시 후 다시 시도하거나, 상단에서 GPT로 바꿔서 이어가 보세요.");
+    throw new Error(`Gemini 오류 (${status}): ${lastDetail.slice(0, 200)}`);
   }
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.map((pt: { text?: string }) => pt.text ?? "").join("") ?? "";
