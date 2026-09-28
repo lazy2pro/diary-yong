@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "system-serif";
+  src: local("Apple SD Gothic Neo"), local("Malgun Gothic");
+}
+
+:root {
+  --paper: #fbf6ec;
+  --paper-line: #e6dcc6;
+  --ink: #4a3f33;
+  --ink-soft: #8a7c68;
+  --cover: #7a5a3a;
+  --cover-dark: #5f4529;
+  --accent: #c98a3c;
+  --accent-soft: #e9c893;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior: none;
+  touch-action: pan-y;
+}
+
+body {
+  background: radial-gradient(circle at 50% 0%, #efe4d0, #d8c6a8 70%);
+  color: var(--ink);
+  font-family: "Gowun Dodum", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* 종이 질감(줄노트) */
+.paper-lines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 33px,
+    var(--paper-line) 33px,
+    var(--paper-line) 34px
+  );
+}
+
+.handwriting {
+  font-family: "Nanum Pen Script", "Gowun Dodum", cursive;
+}
+
+textarea,
+input {
+  font-family: inherit;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
