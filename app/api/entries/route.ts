@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errMsg } from "@/lib/util";
-import { listEntries, saveEntry, newEntry } from "@/lib/store";
+import { listEntries, saveEntry, newEntry, getEntry } from "@/lib/store";
 import { composeDiary } from "@/lib/ai";
 import type { AiProvider, ChatMessage, DiaryEntry } from "@/lib/types";
 
@@ -15,16 +15,29 @@ export async function GET() {
   }
 }
 
-// 새 일기 생성.
-// body: { provider, chat: ChatMessage[], title?, body?, mood? }
-// chat이 있으면 AI가 대화를 정리해 일기 본문을 완성한다. title/body가 직접 오면 그대로 저장.
+// 새 일기 생성 / 임시 일기(draft) 생성 / 기존 일기에 대화 정리.
+// body:
+//  - { draft: true }                 → 빈 임시 일기를 만들어 id 발급 (쓰기 중 사진 첨부용)
+//  - { id, provider, chat }           → 기존 일기(id)에 대화를 정리해 본문 채우기
+//  - { provider, chat }               → 새 일기를 만들고 대화를 정리
+//  - { title, body, mood }            → 직접 입력한 본문으로 저장
 export async function POST(req: NextRequest) {
   try {
     const b = await req.json();
     const provider: AiProvider = b?.provider === "gemini" ? "gemini" : "openai";
     const chat: ChatMessage[] = Array.isArray(b?.chat) ? b.chat : [];
 
-    const entry: DiaryEntry = newEntry();
+    // 1) 임시 일기(draft) 발급: 사진을 붙일 대상 id만 먼저 만든다
+    if (b?.draft === true) {
+      const draft = newEntry();
+      draft.title = "작성 중인 일기";
+      await saveEntry(draft);
+      return NextResponse.json({ entry: draft });
+    }
+
+    // 2) 기존 일기에 이어 쓰기(사진을 먼저 붙여둔 draft를 완성)
+    const existing = b?.id ? await getEntry(String(b.id)) : null;
+    const entry: DiaryEntry = existing ?? newEntry();
     entry.chat = chat;
 
     if (b?.body && String(b.body).trim()) {

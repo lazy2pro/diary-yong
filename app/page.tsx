@@ -363,8 +363,53 @@ function WriteView({
   const [composing, setComposing] = useState(false);
   const [err, setErr] = useState("");
   const [voiceMode, setVoiceMode] = useState(false); // AI 답장을 음성으로 읽어줄지
+  const [draftId, setDraftId] = useState<string | null>(null); // 사진을 붙일 임시 일기 id
+  const [photos, setPhotos] = useState<DiaryEntry["photos"]>([]); // 대화 중 첨부한 사진들
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
   const voice = useVoiceInput();
+
+  // 사진을 저장하려면 서버에 일기 id가 있어야 한다. 없으면 임시 일기를 먼저 만든다.
+  async function ensureDraftId(): Promise<string | null> {
+    if (draftId) return draftId;
+    try {
+      const res = await fetch("/api/entries", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: true }),
+      });
+      const data = await res.json();
+      if (data?.entry?.id) {
+        setDraftId(data.entry.id);
+        return data.entry.id;
+      }
+      setErr(data.error ?? "임시 일기를 만들지 못했어요.");
+      return null;
+    } catch (e: unknown) {
+      setErr(errMsg(e));
+      return null;
+    }
+  }
+
+  async function addPhoto(file: File) {
+    setUploadingPhoto(true);
+    setErr("");
+    try {
+      const id = await ensureDraftId();
+      if (!id) return;
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`/api/entries/${id}/photo`, { method: "POST", body: form });
+      const data = await res.json();
+      if (data.error) setErr(data.error);
+      else if (data.entry) setPhotos(data.entry.photos);
+    } catch (e: unknown) {
+      setErr(errMsg(e));
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -415,7 +460,8 @@ function WriteView({
       const res = await fetch("/api/entries", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, chat }),
+        // 대화 중 사진을 붙였다면 그 임시 일기(draftId)에 이어서 완성한다.
+        body: JSON.stringify({ provider, chat, id: draftId }),
       });
       const data = await res.json();
       if (data.error) setErr(data.error);
@@ -541,11 +587,47 @@ function WriteView({
           </button>
         </div>
 
-        {/* AI 답장 음성 읽기 토글 */}
-        <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--ink-soft)", marginTop: 8, cursor: "pointer" }}>
-          <input type="checkbox" checked={voiceMode} onChange={(e) => setVoiceMode(e.target.checked)} />
-          🔊 답장을 목소리로 읽어주기
-        </label>
+        {/* 대화 중 첨부한 사진 미리보기 */}
+        {photos.length > 0 && (
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            {photos.map((p, i) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={i}
+                src={p.url}
+                alt="첨부 사진"
+                style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 10, border: "1px solid var(--paper-line)" }}
+              />
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+          {/* AI 답장 음성 읽기 토글 */}
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--ink-soft)", cursor: "pointer" }}>
+            <input type="checkbox" checked={voiceMode} onChange={(e) => setVoiceMode(e.target.checked)} />
+            🔊 답장을 목소리로 읽어주기
+          </label>
+          {/* 대화 중 사진 첨부 */}
+          <input
+            ref={photoRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) addPhoto(f);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => photoRef.current?.click()}
+            disabled={uploadingPhoto}
+            style={{ ...ghostBtn(), fontSize: 12.5, opacity: uploadingPhoto ? 0.6 : 1 }}
+          >
+            {uploadingPhoto ? "사진 올리는 중…" : "📷 사진 추가"}
+          </button>
+        </div>
 
         <button onClick={finish} disabled={composing} style={{ ...secondaryBtn(), width: "100%", marginTop: 10, opacity: composing ? 0.6 : 1 }}>
           {composing ? "일기로 정리하는 중…" : "📖 이 대화로 일기 완성하기"}
