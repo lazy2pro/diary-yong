@@ -27,7 +27,7 @@ async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boo
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY가 설정되어 있지 않아요. Vercel 환경변수에 키를 추가한 뒤 재배포해 주세요.");
   // 모델 버전은 자주 바뀌므로 환경변수(GEMINI_MODEL)로 덮어쓸 수 있게 한다. 기본은 최신 GA 모델.
-  const model = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-3.5-flash";
   const contents = chat.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
