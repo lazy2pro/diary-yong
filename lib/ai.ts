@@ -36,9 +36,11 @@ async function geminiGenerate(system: string, chat: ChatMessage[], jsonMode: boo
   // 속도 최적화: Gemini 3.x는 기본으로 긴 "사고(thinking)"를 하는데, 캐주얼한 일기 대화엔
   // 불필요해 응답이 느려진다. thinkingBudget=0으로 사고를 끄고, 답변 길이도 제한한다.
   // (일기 완성처럼 정리가 필요한 jsonMode에서는 사고를 살짝 허용한다.)
+  // jsonMode(일기 완성)에서는 "사고" 토큰이 출력 예산을 잠식해 JSON이 잘려(MAX_TOKENS) 파싱 실패가
+  // 났다. 출력 예산을 넉넉히(2048) 주고, 사고 예산은 그보다 작게 둬서 JSON 본문이 잘리지 않게 한다.
   const generationConfig: Record<string, unknown> = {
-    maxOutputTokens: jsonMode ? 1200 : 320,
-    thinkingConfig: { thinkingBudget: jsonMode ? 512 : 0 },
+    maxOutputTokens: jsonMode ? 2048 : 320,
+    thinkingConfig: { thinkingBudget: jsonMode ? 256 : 0 },
   };
   if (jsonMode) generationConfig.responseMimeType = "application/json";
   const payload = JSON.stringify({
@@ -136,15 +138,56 @@ export async function composeDiary(provider: AiProvider, chat: ChatMessage[]): P
     provider === "gemini"
       ? await geminiGenerate(COMPOSE_SYSTEM, [...chat, instruction], true)
       : await openaiGenerate(COMPOSE_SYSTEM, [...chat, instruction], true);
-  try {
-    const parsed = JSON.parse(raw);
+  const parsed = parseDiaryJson(raw);
+  if (parsed) {
     return {
       title: String(parsed.title ?? "제목 없는 하루").slice(0, 80),
       body: String(parsed.body ?? ""),
       mood: parsed.mood ? String(parsed.mood).slice(0, 4) : null,
     };
-  } catch {
-    // JSON 파싱 실패 시 본문만이라도 살린다
-    return { title: "오늘의 일기", body: raw, mood: null };
   }
+  // JSON 파싱이 끝내 실패하면(형식 이탈 등) 원문에서 코드펜스만 걷어내 본문으로 살린다.
+  return { title: "오늘의 일기", body: raw.replace(/```(?:json)?/gi, "").trim(), mood: null };
+}
+
+// 모델이 마크다운 코드펜스(```json ... ```)로 감싸거나 앞뒤에 설명을 붙이거나,
+// 토큰 제한으로 뒷부분이 살짝 잘려도 최대한 JSON 객체를 복구해서 파싱한다.
+function parseDiaryJson(raw: string): { title?: unknown; body?: unknown; mood?: unknown } | null {
+  if (!raw) return null;
+  // 1) 코드펜스 제거
+  let s = raw.replace(/```(?:json)?/gi, "").trim();
+  // 2) 그대로 시도
+  try {
+    return JSON.parse(s);
+  } catch {
+    /* 계속 */
+  }
+  // 3) 첫 '{'부터 마지막 '}'까지 잘라서 시도
+  const first = s.indexOf("{");
+  const last = s.lastIndexOf("}");
+  if (first !== -1 && last > first) {
+    const slice = s.slice(first, last + 1);
+    try {
+      return JSON.parse(slice);
+    } catch {
+      /* 계속 */
+    }
+  }
+  // 4) 잘린 경우: 필드 값만 정규식으로 추출
+  const grab = (key: string) => {
+    const m = s.match(new RegExp('"' + key + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"'));
+    if (!m) return undefined;
+    try {
+      return JSON.parse('"' + m[1] + '"');
+    } catch {
+      return m[1];
+    }
+  };
+  const title = grab("title");
+  const body = grab("body");
+  const mood = grab("mood");
+  if (title != null || body != null) {
+    return { title, body, mood };
+  }
+  return null;
 }
