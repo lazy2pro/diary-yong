@@ -155,7 +155,7 @@ export async function composeDiary(provider: AiProvider, chat: ChatMessage[]): P
 function parseDiaryJson(raw: string): { title?: unknown; body?: unknown; mood?: unknown } | null {
   if (!raw) return null;
   // 1) 코드펜스 제거
-  let s = raw.replace(/```(?:json)?/gi, "").trim();
+  const s = raw.replace(/```(?:json)?/gi, "").trim();
   // 2) 그대로 시도
   try {
     return JSON.parse(s);
